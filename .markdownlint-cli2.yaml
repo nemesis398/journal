@@ -1,0 +1,10 @@
+config:
+  # Long lines are fine in prose and tables.
+  MD013: false
+  # The eval prompts start with front matter and a sentence, not a heading.
+  MD041: false
+  # SKILL.md runs its Values line right below the title, with no blank line.
+  MD022:
+    lines_below: [-1, 1, 1, 1, 1, 1]
+ignores:
+  - "evals/results/**"

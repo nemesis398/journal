@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "journal",
+  "version": "0.1.0",
+  "description": "Session notes in an Obsidian vault: a session's decisions, findings and finished artifacts under five fixed sections, checked by a prose gate, with a Stop hook that reminds once.",
+  "author": {
+    "name": "nemesis398",
+    "url": "https://github.com/nemesis398"
+  },
+  "homepage": "https://github.com/nemesis398/journal",
+  "repository": "https://github.com/nemesis398/journal",
+  "license": "MIT",
+  "keywords": [
+    "obsidian",
+    "journal",
+    "session-notes",
+    "hooks"
+  ]
+}

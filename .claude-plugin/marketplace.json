@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "journal",
+  "owner": {
+    "name": "nemesis398",
+    "url": "https://github.com/nemesis398"
+  },
+  "metadata": {
+    "description": "The journal skill for Claude Code, as a marketplace of one."
+  },
+  "plugins": [
+    {
+      "name": "journal",
+      "source": "./",
+      "description": "Session notes in an Obsidian vault, with a Stop hook that reminds once."
+    }
+  ]
+}

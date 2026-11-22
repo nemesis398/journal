@@ -1,0 +1,16 @@
+{
+  "description": "The journal's Stop reminder: once per session, when files changed and no session note was written.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -B \"${CLAUDE_PLUGIN_ROOT}/skills/journal/adapters/claude/stop.py\" || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
