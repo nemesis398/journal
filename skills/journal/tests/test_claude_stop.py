@@ -33,7 +33,7 @@ def quiet_turn():
     ]
 
 
-SESSION_NOTE = "/home/m/Vault/AI/sessions/2026-10-17 Stop hooks.md"
+SESSION_NOTE = "/notes/vault/AI/sessions/2026-10-17 Stop hooks.md"
 WRITER = "~/.claude/skills/journal/scripts/session_note.py"
 
 
@@ -167,6 +167,40 @@ class TestWhatCountsAsJournalled(StopCase):
                 out = stop.handle(self.payload(self.wound_down_after(turn),
                                                session_id=session))
                 self.assertIsNotNone(out)
+
+    def test_the_area_places_the_session_notes(self):
+        # With `vault.area` "", the notes sit in the vault's sessions/.
+        values = json.loads(json.dumps(STOP_CONFIG))
+        values["vault"]["area"] = ""
+        self.config.write_text(json.dumps(values), encoding="utf-8")
+        note = "/notes/vault/sessions/2026-10-17 Stop hooks.md"
+        for session, name in (("s-edit", "Edit"), ("s-write", "Write")):
+            with self.subTest(session=session):
+                turn = tool_turn(name, file_path=note, content="# T")
+                self.assertIsNone(stop.handle(self.payload(
+                    self.wound_down_after(turn), session_id=session)))
+                self.assertEqual(self.reason(), "already_journalled")
+        # And the default folder no longer counts.
+        turn = tool_turn("Edit", file_path=SESSION_NOTE, old_string="a", new_string="b")
+        self.assertIsNotNone(stop.handle(self.payload(
+            self.wound_down_after(turn), session_id="s-old")))
+
+    def test_a_sessions_folder_outside_the_vault_does_not_count(self):
+        for session, path in (
+                ("s-repo", "/home/m/Git/some/AI/sessions/2026-10-17 X.md"),
+                ("s-up", "/notes/vault/../elsewhere/AI/sessions/X.md"),
+                ("s-rel", "some/AI/sessions/X.md")):
+            with self.subTest(session=session):
+                turn = tool_turn("Edit", file_path=path, old_string="a", new_string="b")
+                self.assertIsNotNone(stop.handle(self.payload(
+                    self.wound_down_after(turn), session_id=session)))
+
+    def test_journal_vault_places_the_session_notes(self):
+        os.environ["JOURNAL_VAULT"] = self.tmp.name
+        note = str(Path(self.tmp.name) / "AI" / "sessions" / "2026-10-17 X.md")
+        turn = tool_turn("Write", file_path=note, content="# T")
+        self.assertIsNone(stop.handle(self.payload(self.wound_down_after(turn))))
+        self.assertEqual(self.reason(), "already_journalled")
 
     def test_running_the_writer_without_writing_does_not_count(self):
         # What a session working on the journal skill does all day.
@@ -381,6 +415,14 @@ class TestConfig(StopCase):
         done = self._drive(json.dumps(values))
         self.assertEqual(done.stdout, "")
         self.assertIn("`vault.area`", done.stderr)
+        self.assertIn("set or fix `vault.area`", done.stderr)
+
+    def test_a_rejected_daily_note_says_set_or_fix(self):
+        values = json.loads(json.dumps(STOP_CONFIG))
+        values["journal"]["dailyNote"] = "sometimes"
+        done = self._drive(json.dumps(values))
+        self.assertEqual(done.stdout, "")
+        self.assertIn("set or fix `journal.dailyNote`", done.stderr)
 
     def test_off_records_why(self):
         self.config.write_text("{}", encoding="utf-8")

@@ -24,7 +24,8 @@ import journal_state as js  # noqa: E402
 TAIL_BYTES = 262_144
 
 # What counts as journalled: the session note's writer run with its verb, or an
-# edit to a note in the vault's AI/sessions/. The command has to stand where a
+# edit to a file under the sessions folder, which `vault.area` places and the
+# Stop hook hands to turns() resolved. The command has to stand where a
 # command starts, at the beginning or after `&&`, `;`, `|`, a parenthesis or a
 # newline, with the verb right after the script. Anything looser counts a
 # session that greps for the command, prints the script or asks it for --help,
@@ -38,7 +39,6 @@ SESSION_NOTE_WRITE = re.compile(
     r"(?:^|[;&|(\n])\s*(?:(?:\w+=\S*|env|timeout\s+\d\S*)\s+)*"
     r"(?:\S*python3?(?:\s+-\S+)*\s+)?"
     r"(?:\"[^\"\n]*|'[^'\n]*|\S*)session_note\.py[\"']?\s+write\b")
-SESSION_NOTES = "/AI/sessions/"
 
 
 def disabled() -> bool:
@@ -131,13 +131,27 @@ def commit_pattern(command: str | None) -> re.Pattern | None:
     return re.compile(r"(?:^|[;&|(\n])\s*" + re.escape(command.strip()) + r"\s")
 
 
-def turns(transcript_path: str, commit: str | None = None) -> list[dict]:
+def _under(file_path, folder: Path | None) -> bool:
+    """Whether `file_path` lies in `folder`, both resolved. False without a
+    folder or a path, and for a path that cannot be resolved."""
+    if folder is None or not file_path:
+        return False
+    try:
+        return Path(str(file_path)).expanduser().resolve().is_relative_to(folder)
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def turns(transcript_path: str, commit: str | None = None,
+          sessions: Path | None = None) -> list[dict]:
     """One dict per user turn: {"modified": bool, "journalled": bool}.
 
     A turn is the stretch between two real user messages, so a tool result
     does not open a new one. This is what "the last two turns changed
     nothing" is measured against. `commit` is the vault's commit command
-    (`vault.commit`), when one is set.
+    (`vault.commit`), when one is set. `sessions` is the resolved folder of
+    the session notes; an edit under it counts as journalled, and without it
+    only a run of the writer does.
     """
     committed = commit_pattern(commit)
     out: list[dict] = []
@@ -158,7 +172,7 @@ def turns(transcript_path: str, commit: str | None = None) -> list[dict]:
             args = block.get("input") or {}
             if name in ("Edit", "Write", "NotebookEdit"):
                 out[-1]["modified"] = True
-                if SESSION_NOTES in str(args.get("file_path", "")):
+                if _under(args.get("file_path"), sessions):
                     out[-1]["journalled"] = True
             elif name == "Bash":
                 command = str(args.get("command", ""))

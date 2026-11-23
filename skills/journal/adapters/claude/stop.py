@@ -7,6 +7,7 @@ import os
 import sys
 
 import _common
+import session_note
 import skill_values as sv
 from _common import js
 
@@ -66,7 +67,7 @@ def handle(payload: dict) -> dict | None:
         js.record_standdown(cwd, "stop", "no_config")
         if not stamp.get("warned"):
             keys = ", ".join(f"`{key}`" for key in unset)
-            print(f"journal: the Stop reminder is off: set {keys} in `{sv.path()}`",
+            print(f"journal: the Stop reminder is off: set or fix {keys} in `{sv.path()}`",
                   file=sys.stderr)
             stamp["warned"] = True
             js.write_stamp(cwd, session, stamp)
@@ -75,7 +76,11 @@ def handle(payload: dict) -> dict | None:
     if stamp.get("fired"):
         return None
 
-    seen = _common.turns(transcript, commit=sv.get("vault.commit"))
+    # Past the gate, so `vault.root` (or JOURNAL_VAULT) and `vault.area` are
+    # known good, and the folder is where the writer puts the notes.
+    folder = session_note.sessions_dir().resolve()
+    seen = _common.turns(transcript, commit=sv.get("vault.commit"),
+                         sessions=folder)
     if any(turn["journalled"] for turn in seen):
         js.record_standdown(cwd, "stop", "already_journalled")
         return None

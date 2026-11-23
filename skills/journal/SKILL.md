@@ -179,10 +179,12 @@ and never with `git commit`, as `COMMAND MESSAGE PATH...`, naming the note
 the writer printed:
 
 ```bash
-VAULT_COMMIT "docs(ai): session note" "AI/sessions/2026-10-17 Memory system.md"
+VAULT_COMMIT "docs(ai): session note" "NOTE_PATH"
 ```
 
-`VAULT_COMMIT` stands for the value of `vault.commit` in Values. When Values
+`VAULT_COMMIT` stands for the value of `vault.commit` in Values, and
+`NOTE_PATH` for the path the writer printed. Take it from that line rather
+than build it: `vault.area` decides the folder. When Values
 says the commit step is off, leave the note uncommitted and say so in your
 reply.
 
