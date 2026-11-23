@@ -106,7 +106,7 @@ The domain list a note's `--domain` is checked against belongs to the
 The scripts expect the vault's notes in fixed places: the session notes in
 `sessions/` under `vault.area` (`AI/sessions/` by default), the daily notes
 in `daily-notes/` named in the format `dddd, DD. MMM Y ([W]W)`,
-and the daily note's template at `templates/Daily Note.md`.
+and the daily note's template at `templates/Daily Note.md` (neither is needed with `journal.dailyNote: false`).
 
 When the day has no daily note yet, the skill creates one named
 `<Weekday>, DD. Mon YYYY (W<n>).md`, in English and with an unpadded week,
