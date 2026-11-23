@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+
+- `vault.area` places the session notes: they go to `sessions/` under it,
+  `AI` by default, and `""` or `.` is the vault root. An absolute path, `..`
+  or a backslash is invalid: the Values block says so, the writer refuses it
+  with exit 2, and the Stop reminder stays quiet.
+- `journal.dailyNote` set to `false` turns the daily note off: a session note
+  gets no Day link, no daily note is read or created, and
+  `journal.protectedSection` is no longer needed by the skill or the Stop
+  reminder. It defaults to `true`, so a config without either key works as
+  before.
+
 ## 0.1.0
 
 - The journal skill as a plugin of its own: the session note writer, the

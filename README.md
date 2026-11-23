@@ -8,13 +8,16 @@ files and wrote no note.
 
 ## What it does
 
-- **Writes one note per session** in the vault's `AI/sessions/`, under up to
+- **Writes one note per session** in `sessions/` under the vault's area,
+  `AI/sessions/` by default, under up to
   five fixed sections (`Done`, `Decisions`, `Findings`, `Memory candidates`,
   `Next`). A resumed session extends the note it started, even on a later day.
 - **Links the day.** The note links its daily note in `daily-notes/`. To see
   the day's session notes inside the daily note, create an Obsidian base that
-  lists the notes in `AI/sessions/` linking to the current file, and embed it
-  in your daily note template; the plugin ships no base.
+  lists the notes in the sessions folder linking to the current file, and
+  embed it in your daily note template; the plugin ships no base. With
+  `journal.dailyNote` set to `false`, the note links no day and the skill
+  never reads or creates a daily note.
 - **Checks the prose first.** The entry goes through the `prose` skill's
   checker before it is written.
 - **Refuses a headless run.** Only an interactive main session writes a note.
@@ -60,8 +63,10 @@ The skill reads its values from the file named by `JOURNAL_CONFIG`, else
 | --- | --- | --- |
 | `user.name` | string, optional | the user's name, shown in the Values block when set; the skill never stops without it |
 | `vault.root` | string, an absolute path, required | the Obsidian vault |
+| `vault.area` | string, a relative path, optional | the folder inside the vault that holds `sessions/`; default `AI`, and `""` or `.` is the vault root. A trailing slash is dropped. An absolute path, `..` or a backslash is invalid, and the skill stops on it |
 | `vault.commit` | string, a command, optional | what commits the session note, run as `COMMAND MESSAGE PATH...`; the skill then never runs `git commit`. Without it the commit step is off: the note stays uncommitted and the skill says so |
-| `journal.protectedSection` | string, a heading line, required | the section of the daily note that is the user's alone: the skill never writes there, and puts its Capture section above it |
+| `journal.dailyNote` | boolean, optional | `false` turns off every step about the daily note: no Day link, no daily note created, and no need for `journal.protectedSection`; default `true` |
+| `journal.protectedSection` | string, a heading line, required while the daily note is on | the section of the daily note that is the user's alone: the skill never writes there, and puts its Capture section above it |
 | `journal.languageRule` | string, Markdown, required | which language a session note is written in, by subject |
 | `journal.proseCheck` | string, a path or a command name | the `prose` checker; default `prose-check` on the PATH |
 | `journal.check` | string, a command, optional | what checks the vault after the write, run as is from the vault root. Without it the check is skipped and the skill says so |
@@ -71,11 +76,15 @@ which prints the values as a block the model reads. A key that is missing or
 of the wrong type prints a line telling the model to stop and which key to
 set in which file; a missing, empty or malformed file counts as every key
 missing. The skill stops without `vault.root`, `journal.protectedSection` and
-`journal.languageRule`, so set all three before its first use. Without a checker the prose gate alone is off, and the skill says so
-in its reply. The Stop hook stays quiet while any key the skill stops without
-is missing (`vault.root`, which `JOURNAL_VAULT` can stand in for,
-`journal.protectedSection` and `journal.languageRule`), and says so once per
-session in one line on stderr that names the file.
+`journal.languageRule`, so set all three before its first use; with
+`journal.dailyNote` set to `false`, it needs no `journal.protectedSection`.
+An invalid `vault.area` or `journal.dailyNote` stops it too. Without a
+checker the prose gate alone is off, and the skill says so in its reply. The
+Stop hook stays quiet while any key the skill stops without is missing or
+invalid (`vault.root`, which `JOURNAL_VAULT` can stand in for,
+`journal.protectedSection` while the daily note is on, and
+`journal.languageRule`), and says so once per session in one line on stderr
+that names the file.
 
 A plugin install of `prose` puts `prose-check` in a versioned folder of the
 plugin cache, which changes with every update of that plugin and is not on
@@ -94,8 +103,9 @@ The domain list a note's `--domain` is checked against belongs to the
 
 ## Vault layout
 
-The scripts expect the vault's notes in fixed places: `AI/sessions/`, the
-daily notes in `daily-notes/` named in the format `dddd, DD. MMM Y ([W]W)`,
+The scripts expect the vault's notes in fixed places: the session notes in
+`sessions/` under `vault.area` (`AI/sessions/` by default), the daily notes
+in `daily-notes/` named in the format `dddd, DD. MMM Y ([W]W)`,
 and the daily note's template at `templates/Daily Note.md`.
 
 When the day has no daily note yet, the skill creates one named

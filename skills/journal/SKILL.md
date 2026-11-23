@@ -18,13 +18,16 @@ allowed-tools: Bash(python3 -B "${CLAUDE_SKILL_DIR}/scripts/skill_values.py" ren
 
 The Values block above holds the user's values for this skill. A line that
 says **Stop.** names a value that is not set: stop, and tell the user which
-value to set in which file. A line that says a step is off holds for that
-step alone.
+value to set in which file, and so does a line that says **invalid**. A line
+that says a step is off holds for that step alone. The line
+`journal.dailyNote`: off holds for every step about the daily note: skip each
+one.
 
 A session note records what one session did that is worth finding again.
 Months later the user finds it by search or through the day: the note links
 its daily note, which can embed the day's session notes through a base the
-user keeps. Agents never journal into the daily note itself. Your job is
+user keeps. Agents never journal into the daily note itself. When the daily
+note is off, the note links no day and search alone finds it. Your job is
 to leave behind the entries that make a fact findable, and nothing else.
 
 ## The bar
@@ -54,7 +57,8 @@ puts its candidate entry in its report to the parent.
 
 ## Never the protected section
 
-The section of the daily note that `journal.protectedSection` in Values names
+When the daily note is off, skip this section: there is no daily note to
+protect. The section of the daily note that `journal.protectedSection` in Values names
 is the user's alone: the user writes it, and it feeds another document that
 is compiled from it, so a line the skill puts there ends up in that document
 as if the user had written it. Do not write to it, do not reword it, do not
@@ -69,7 +73,8 @@ only when it has something in it:
 - `## Done`: the artifacts finished, one bullet each.
 - `## Decisions`: what was decided and why the alternatives lost.
 - `## Findings`: what turned out to be true or false.
-- `## Memory candidates`: facts that might earn a note in `AI/memory/`. They
+- `## Memory candidates`: facts that might earn a note in the memory folder
+  of `ai-memory`. They
   are searchable but never injected, and the user decides later which to
   promote. The `ai-memory` skill holds the tests a memory must pass,
   and the form of the one other bullet here: `archive`, for a memory found
@@ -86,8 +91,9 @@ is a key of `memory.domains` in the ai-memory skill's config, such as
 **Language follows subject, not folder.** Which subject takes which language
 is `journal.languageRule` in Values.
 
-**Write like the entries already there.** Read the two newest notes in
-`AI/sessions/` before your first entry of a session. Entries are full
+**Write like the entries already there.** Read the two newest notes in the
+`sessions/` folder under `vault.area` in Values before your first entry of a
+session. Entries are full
 sentences, not bullet dumps: what was decided, what was measured, what turned
 out to be false. The one sentence that matters most is set in bold, for
 example a corrected misdiagnosis or the number that closes a question. An
@@ -138,7 +144,7 @@ The title becomes the note's H1 and, after the date, its filename. Keep it a
 plain phrase: no trailing punctuation, which markdownlint flags; no `#word`,
 which Obsidian turns into an inline tag that nothing catches; and no wikilink
 or Markdown link. The description is one line on what the session did, and it
-is what the daily note's embed shows. On a later write, pass a description
+is what the daily note's embed shows, when the daily note is on. On a later write, pass a description
 that covers the whole session, because it replaces the old one.
 
 The script finds the note on its own. A resumed session keeps its session id
@@ -146,8 +152,9 @@ and writes into the note it started, even on a later day, and so does a second
 write with the same title on the same day. Each section's text goes under its
 existing heading. Exit 2 means it refused the input, such as an empty body or
 a heading outside the five; fix it and run again. Exit 2 with "set
-`vault.root` in" a file means the skill is not set up: stop and tell the user
-which file. Exit 3 means a headless run, so write nothing and report the entry
+`vault.root` in" a file, or one that names `vault.area` or
+`journal.dailyNote`, means the skill is not set up: stop and tell the user
+which value to fix in which file. Exit 3 means a headless run, so write nothing and report the entry
 instead.
 
 `--dry-run` prints the resulting note without writing it. Use it when you are

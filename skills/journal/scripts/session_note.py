@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Write a session note into the vault's `AI/sessions/`. Composes nothing.
+"""Write a session note into `<vault.area>/sessions/` of the vault. Composes nothing.
 
     session_note.py write --title T --domain D [--domain D2] --description S
         --body-file F [--session ID] [--date YYYY-MM-DD] [--dry-run]
 
 The body is the model's own prose, already prose-checked, under `## `
 headings taken from SECTIONS. This module names the file, writes the
-frontmatter and the Day link, and on a later call from the same session
+frontmatter and the Day link (none with `journal.dailyNote` false), and on a later call from the same session
 appends each section's text under its heading. `sessions.json` in the
 journal's state root maps each session id to its note, so a session resumed
 on another day extends the note it started instead of opening a second one.
@@ -25,16 +25,19 @@ import os
 import re
 import sys
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import daily_note as dn
 import journal_state as js
+import skill_values as sv
 
 # The ai-memory lint and hooks read every note in the AI area through the same
 # reader, so the frontmatter an append extends is read the way they read it.
 from frontmatter import parse_frontmatter
 
-SESSIONS_DIR = "AI/sessions"
+AREA_KEY = "vault.area"
+DEFAULT_AREA = "AI"
+DAILY_KEY = "journal.dailyNote"
 
 SECTIONS = ("Done", "Decisions", "Findings", "Memory candidates", "Next")
 
@@ -53,8 +56,64 @@ def safe_title(title: str) -> str:
     return " ".join(_UNSAFE.sub(" ", title).split())
 
 
+class BadArea(ValueError, LookupError):
+    """`vault.area` is not a relative path inside the vault. A LookupError
+    too, so a hook or script reports it like a key that is not set."""
+
+
+class BadDailyNote(ValueError, LookupError):
+    """`journal.dailyNote` is set to something other than true or false."""
+
+
+def _raw(key: str, values: dict | None):
+    node = sv.load() if values is None else values
+    for part in key.split("."):
+        node = node.get(part) if isinstance(node, dict) else None
+    return node
+
+
+def area(values: dict | None = None) -> PurePosixPath:
+    """The folder of the notes inside the vault: `vault.area`, default `AI`.
+
+    `""` and `.` mean the vault root. A trailing slash is dropped. An absolute
+    path, `..` or a backslash raises BadArea naming the key. The same check
+    and the same messages as ai-memory's notes.area(): the leaves share no
+    code, so each holds its own copy."""
+    node = _raw(AREA_KEY, values)
+    if node is None:
+        return PurePosixPath(DEFAULT_AREA)
+    problem = None
+    if not isinstance(node, str):
+        problem = "must be a string"
+    elif "\\" in node:
+        problem = "must not hold a backslash"
+    elif PurePosixPath(node.strip()).is_absolute():
+        problem = "must be a relative path, not an absolute one"
+    elif ".." in PurePosixPath(node.strip()).parts:
+        problem = "must not hold .."
+    if problem:
+        raise BadArea(f"`{AREA_KEY}` in `{sv.path()}` {problem}: {node!r}. "
+                      "Use a path inside the vault such as AI, or \"\" for the vault root")
+    return PurePosixPath(node.strip())
+
+
+def daily_note(values: dict | None = None) -> bool:
+    """`journal.dailyNote`, true when not set. Raises BadDailyNote naming the
+    key on a value that is not true or false."""
+    node = _raw(DAILY_KEY, values)
+    if node is None:
+        return True
+    if not isinstance(node, bool):
+        raise BadDailyNote(f"`{DAILY_KEY}` in `{sv.path()}` must be true or false: {node!r}")
+    return node
+
+
+def sessions_dir() -> Path:
+    return dn.vault_root() / area() / "sessions"
+
+
 def note_path(d: date, title: str) -> Path:
-    return dn.vault_root() / SESSIONS_DIR / f"{d:%Y-%m-%d} {safe_title(title)}.md"
+    return sessions_dir() / f"{d:%Y-%m-%d} {safe_title(title)}.md"
 
 
 def map_path() -> Path:
@@ -121,11 +180,14 @@ def _flow(items: list[str]) -> str:
 
 
 def _new_note(session: str, title: str, domains: list[str], description: str,
-              sections: dict[str, list[str]], d: date, day: str) -> str:
+              sections: dict[str, list[str]], d: date, day: str | None) -> str:
+    """A new note. `day` names the daily note to link, None for no Day line."""
     lines = ["---", "type: session", f"domain: {_flow(domains)}",
              f"updated: {d.isoformat()}", f"description: {_quoted(description)}",
              f"generated: claude/{session}", "---", "",
-             f"# {' '.join(title.split())}", "", f"Day: [[{day}]]"]
+             f"# {' '.join(title.split())}"]
+    if day is not None:
+        lines += ["", f"Day: [[{day}]]"]
     for name, text in sections.items():
         lines += ["", f"## {name}", "", *text]
     return "\n".join(lines) + "\n"
@@ -150,9 +212,10 @@ def _set_key(rows: list[str], key: str, value: str, nl: str) -> list[str]:
 
 
 def _append(text: str, domains: list[str], description: str,
-            sections: dict[str, list[str]], d: date, day: str) -> str:
-    """`text` with `updated`, `domain` and `description` set, the day linked,
-    and each section's lines at the end of its own section.
+            sections: dict[str, list[str]], d: date, day: str | None) -> str:
+    """`text` with `updated`, `domain` and `description` set, the day linked
+    unless `day` is None, and each section's lines at the end of its own
+    section.
 
     A section the note lacks goes in before the first heading that comes
     later in SECTIONS, else at the end. Lines outside those edits stay
@@ -171,17 +234,8 @@ def _append(text: str, domains: list[str], description: str,
     lines = [lines[0], *rows, *lines[close:]]
     close = len(rows) + 1
 
-    link = f"[[{day}]]"
-    starts = _section_starts(lines, close)
-    head = range(close + 1, starts[0] if starts else len(lines))
-    day_at = next((i for i in head if lines[i].startswith("Day:")), None)
-    if day_at is None:
-        title_at = next((i for i in head if lines[i].startswith("# ")), close)
-        lines = dn._insert(lines, title_at + 1, ["", f"Day: {link}", ""])
-    elif link not in lines[day_at]:
-        row = lines[day_at]
-        content = row.rstrip("\r\n")
-        lines[day_at] = f"{content.rstrip()}, {link}{row[len(content):]}"
+    if day is not None:
+        lines = _link_day(lines, close, day)
 
     for name, text_lines in sections.items():
         starts = _section_starts(lines, close)
@@ -199,6 +253,22 @@ def _append(text: str, domains: list[str], description: str,
             block = block[:-1]  # the note ends on its last line, not a blank one
         lines = dn._insert(lines, at, block)
     return "".join(lines)
+
+
+def _link_day(lines: list[str], close: int, day: str) -> list[str]:
+    """`lines` with the Day line linking `day`, the line added when absent."""
+    link = f"[[{day}]]"
+    starts = _section_starts(lines, close)
+    head = range(close + 1, starts[0] if starts else len(lines))
+    day_at = next((i for i in head if lines[i].startswith("Day:")), None)
+    if day_at is None:
+        title_at = next((i for i in head if lines[i].startswith("# ")), close)
+        lines = dn._insert(lines, title_at + 1, ["", f"Day: {link}", ""])
+    elif link not in lines[day_at]:
+        row = lines[day_at]
+        content = row.rstrip("\r\n")
+        lines[day_at] = f"{content.rstrip()}, {link}{row[len(content):]}"
+    return lines
 
 
 def _read_map() -> dict:
@@ -223,7 +293,7 @@ def _target(sessions: dict, session: str, d: date, title: str) -> Path:
     rel = sessions.get(session)
     if isinstance(rel, str) and rel:
         mapped = dn.vault_root() / rel
-        folder = (dn.vault_root() / SESSIONS_DIR).resolve()
+        folder = sessions_dir().resolve()
         if mapped.is_file() and mapped.resolve().is_relative_to(folder):
             return mapped
     return note_path(d, title)
@@ -231,7 +301,7 @@ def _target(sessions: dict, session: str, d: date, title: str) -> Path:
 
 def _compose(sessions: dict, session: str, title: str, domains: list[str],
              description: str, sections: dict[str, list[str]], d: date,
-             day: str) -> tuple[Path, str, str]:
+             day: str | None) -> tuple[Path, str, str]:
     """The target, "created" or "appended", and the note's new text."""
     target = _target(sessions, session, d, title)
     if target.exists():
@@ -252,16 +322,20 @@ def _write(session: str, title: str, domains: list[str], description: str,
         raise ValueError("the description is empty")
     sections = parse_body(body)
     domains = list(dict.fromkeys(domains))
+    # Both raise on a bad value before anything is written.
+    area()
+    linked = daily_note()
     if dry_run:
         # resolve_note names the daily note that ensure_note would create,
         # and creates nothing.
         return _compose(_read_map(), session, title, domains, description,
-                        sections, d, dn.resolve_note(d).stem)
+                        sections, d, dn.resolve_note(d).stem if linked else None)
     with dn.lock_path().open("w") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             sessions = _read_map()
-            day = dn.ensure_note(d)[0].stem
+            # Without the daily note, nothing here reads or creates one.
+            day = dn.ensure_note(d)[0].stem if linked else None
             target, what, text = _compose(sessions, session, title, domains,
                                           description, sections, d, day)
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -283,6 +357,7 @@ def write(session: str, title: str, domains: list[str], description: str,
     once cannot drop each other's entry. The Day link names the daily note
     that ensure_note resolves, which creates it from the template when the
     day has none yet: a link check fails on a link that resolves to nothing.
+    With `journal.dailyNote` false there is no Day link and no daily note.
     Raises ValueError on input it will not write.
     """
     return _write(session, title, domains, description, body, d)[0]
@@ -292,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="session_note", description="Write this session's note into the vault's AI/sessions/.")
+        prog="session_note", description="Write this session's note into <vault.area>/sessions/ of the vault.")
     subs = parser.add_subparsers(dest="command", required=True)
     cmd = subs.add_parser("write", help="create the session's note, or append to it")
     cmd.add_argument("--title", required=True)

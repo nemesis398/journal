@@ -53,12 +53,14 @@ def handle(payload: dict) -> dict | None:
     session = payload.get("session_id", "")
     stamp = js.read_stamp(cwd, session)
 
-    # The skill it points at stops without any of its Stop keys, so a
-    # reminder would only send the session into that stop. JOURNAL_VAULT
-    # stands in for `vault.root`, as it does in daily_note.vault_root(). One
+    # The skill it points at stops without any of its Stop keys, the
+    # protected section only while the daily note is on, and on a refused
+    # `vault.area` or `journal.dailyNote`, so a reminder would only send the
+    # session into that stop. JOURNAL_VAULT stands in for `vault.root`, as
+    # it does in daily_note.vault_root(). One
     # line says why, on stderr, which Claude Code keeps out of the session,
     # and only once per session: the stamp remembers it was said.
-    unset = [key for key in sv.missing()
+    unset = [key for key in sv.needed()
              if not (key == "vault.root" and os.environ.get("JOURNAL_VAULT"))]
     if unset:
         js.record_standdown(cwd, "stop", "no_config")

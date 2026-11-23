@@ -73,7 +73,7 @@ class Block(unittest.TestCase):
         keys = [key for key, _kind in sv.TEXT_KEYS]
         self.assertEqual(len(keys), len(set(keys)))
         self.assertLessEqual(set(sv.STEPS) | sv.OPTIONAL, set(keys))
-        self.assertEqual(sv.OPTIONAL, {"user.name"})
+        self.assertEqual(sv.OPTIONAL - set(sv.SHOWN), {"user.name"})
         for key, step in sv.STEPS.items():
             with self.subTest(key=key):
                 self.assertLessEqual({"step", "without"}, set(step))

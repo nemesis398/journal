@@ -31,6 +31,8 @@ VARIABLE = "JOURNAL_CONFIG"
 TEXT_KEYS = [
     ("user.name", str),
     ("vault.root", str),
+    ("vault.area", str),
+    ("journal.dailyNote", bool),
     ("journal.protectedSection", str),
     ("journal.languageRule", str),
     ("journal.proseCheck", str),
@@ -63,7 +65,63 @@ STEPS = {
 }
 
 # Keys that never stop anything: printed when set, left out when not.
-OPTIONAL = {"user.name"}
+OPTIONAL = {"user.name", "vault.area", "journal.dailyNote"}
+
+DAILY_KEY = "journal.dailyNote"
+PROTECTED_KEY = "journal.protectedSection"
+
+
+def _area(values: dict) -> str:
+    """The folder inside the vault that holds the sessions folder; `.` is
+    the vault root. A bad value shows its message."""
+    import session_note
+
+    try:
+        return session_note.area(values).as_posix()
+    except session_note.BadArea as exc:
+        return f"invalid: {exc}"
+
+
+def _daily(values: dict) -> str | None:
+    """No line while the daily note is on, the default; when off, the line
+    that frames every step about it."""
+    import session_note
+
+    try:
+        on = session_note.daily_note(values)
+    except session_note.BadDailyNote as exc:
+        return f"invalid: {exc}"
+    return None if on else "off. Skip every step about the daily note"
+
+
+def _protected(values: dict) -> str | None:
+    """The protected section, needed only while the daily note is on."""
+    value = get(PROTECTED_KEY, str, values)
+    if value is None and get(DAILY_KEY, bool, values) is False:
+        return "not needed, the daily note is off"
+    return value
+
+
+# Keys that show a value of their own, also when the key is not set.
+SHOWN = {"vault.area": _area, DAILY_KEY: _daily, PROTECTED_KEY: _protected}
+
+
+def needed(values: dict | None = None) -> list[str]:
+    """What the skill stops on: `missing` without the protected section when
+    the daily note is off, then `vault.area` and `journal.dailyNote` when
+    their value is refused. The Stop hook stays quiet while this is not empty."""
+    import session_note
+
+    values = load() if values is None else values
+    found = [key for key in missing(values)
+             if not (key == PROTECTED_KEY and _protected(values) is not None)]
+    for key, check in (("vault.area", session_note.area),
+                       (DAILY_KEY, session_note.daily_note)):
+        try:
+            check(values)
+        except ValueError:
+            found.append(key)
+    return found
 
 # ---- body ----
 # Everything below this line is the same in every skill that has values.
@@ -148,6 +206,8 @@ def command(key: str, values: dict | None = None) -> str | None:
 
 def current(key: str, kind: type, values: dict) -> object:
     """What the Values line of `key` shows, or None when it is not set."""
+    if key in SHOWN:
+        return SHOWN[key](values)
     if "command" in STEPS.get(key, {}):
         return command(key, values)
     return get(key, kind, values)

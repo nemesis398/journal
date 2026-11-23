@@ -29,6 +29,28 @@ REL = "AI/sessions/2026-10-17 Memory system.md"
 BODY = "## Done\n\nWrote the writer.\n\n## Next\n\nWire the Stop hook.\n"
 TEMPLATE = "## ✅ Today\n\n- [ ] \n\n## \U0001f4dd Capture\n\n"
 VAULT_MDLINT_CONFIG = '{"config": {"MD013": false}}\n'
+# The keys of a config written before vault.area and journal.dailyNote.
+TODAY = {"vault": {"root": "", "commit": "vault-commit"},
+         "journal": {"protectedSection": "## Logbook", "languageRule": "English.",
+                     "check": "notes-check"}}
+# What main wrote at 0b00fcd with TODAY's keys: the note BODY created on D,
+# then APPENDED to it by the same session on D2, and the map.
+FROZEN_CREATED = (
+    '---\ntype: session\ndomain: [claude-code]\nupdated: 2026-10-17\n'
+    'description: "Wrote the session note writer."\n'
+    'generated: claude/0b7c9a52-3f1e-4d2a-9c8b-5e6f7a8b9c0d\n---\n\n# Memory system\n\n'
+    'Day: [[Saturday, 17. Oct 2026 (W42)]]\n\n## Done\n\nWrote the writer.\n\n'
+    '## Next\n\nWire the Stop hook.\n')
+APPENDED = "## Done\n\nWired the hook.\n\n## Decisions\n\nOnce per session.\n"
+FROZEN_APPENDED = (
+    '---\ntype: session\ndomain: [claude-code, journal]\nupdated: 2026-10-18\n'
+    'description: "Wired the Stop hook."\n'
+    'generated: claude/0b7c9a52-3f1e-4d2a-9c8b-5e6f7a8b9c0d\n---\n\n# Memory system\n\n'
+    'Day: [[Saturday, 17. Oct 2026 (W42)]], [[Sunday, 18. Oct 2026 (W42)]]\n\n'
+    '## Done\n\nWrote the writer.\n\nWired the hook.\n\n## Decisions\n\nOnce per session.\n\n'
+    '## Next\n\nWire the Stop hook.\n')
+FROZEN_MAP = ('{\n  "0b7c9a52-3f1e-4d2a-9c8b-5e6f7a8b9c0d": '
+              '"AI/sessions/2026-10-17 Memory system.md"\n}\n')
 # markdownlint-cli2, named by JOURNAL_MDLINT or found on the PATH.
 MDLINT = os.environ.get("JOURNAL_MDLINT") or shutil.which("markdownlint-cli2")
 
@@ -48,12 +70,25 @@ class SessionCase(unittest.TestCase):
         self.state = self.tmp / "state"
         self.sessions = self.vault / "AI" / "sessions"
         self.map = self.state / "sessions.json"
+        # Today's keys, as a config from before vault.area and
+        # journal.dailyNote holds them, so no test reads the real config.
+        self.config_file = self.tmp / "config.json"
+        self.config()
         patcher = mock.patch.dict(os.environ, {
             "JOURNAL_VAULT": str(self.vault),
             "JOURNAL_STATE_ROOT": str(self.state),
+            "JOURNAL_CONFIG": str(self.config_file),
         })
         patcher.start()
         self.addCleanup(patcher.stop)
+
+    def config(self, vault: dict | None = None, journal: dict | None = None) -> None:
+        """TODAY's config with the keys of `vault` and `journal` added."""
+        values = json.loads(json.dumps(TODAY))
+        values["vault"]["root"] = str(self.vault)
+        values["vault"].update(vault or {})
+        values["journal"].update(journal or {})
+        self.config_file.write_text(json.dumps(values), encoding="utf-8")
 
     def write(self, body=BODY, d=D, title=TITLE, domains=("claude-code",),
               description="Wrote the session note writer.", session=SESSION):
@@ -68,6 +103,7 @@ class SessionCase(unittest.TestCase):
                 session: str | None = SESSION) -> subprocess.CompletedProcess:
         env = subprocess_env(JOURNAL_VAULT=str(self.vault),
                              JOURNAL_STATE_ROOT=str(self.state),
+                             JOURNAL_CONFIG=str(self.config_file),
                              PYTHONDONTWRITEBYTECODE="1")
         # The suite's own shell is an attended session with an id, so both
         # are pinned here, never inherited.
@@ -498,8 +534,6 @@ class Markdownlint(SessionCase):
         self.assertEqual(flagged, {"AI/sessions/control.md"}, done.stderr)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestWithoutTheVaultValue(SessionCase):
@@ -515,3 +549,89 @@ class TestWithoutTheVaultValue(SessionCase):
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn(f"set `vault.root` in `{os.devnull}.absent`", done.stderr)
         self.assertFalse(self.sessions.exists())
+
+
+class DefaultConfig(SessionCase):
+    def test_default_config_unchanged(self):
+        path = self.write()
+        self.assertEqual(path, self.vault / REL)
+        self.assertEqual(path.read_bytes(), FROZEN_CREATED.encode("utf-8"))
+        self.write(body=APPENDED, d=D2, domains=("journal",), description="Wired the Stop hook.")
+        self.assertEqual(path.read_bytes(), FROZEN_APPENDED.encode("utf-8"))
+        self.assertEqual(self.map.read_bytes(), FROZEN_MAP.encode("utf-8"))
+        self.assertEqual(sorted(p.name for p in self.daily.iterdir()),
+                         [f"{DAY}.md", f"{DAY2}.md"])
+
+
+class DailyOff(SessionCase):
+    def setUp(self):
+        super().setUp()
+        self.config(journal={"dailyNote": False})
+
+    def test_daily_off_no_day_link(self):
+        path = self.write()
+        self.assertEqual(path.read_text(encoding="utf-8"),
+                         FROZEN_CREATED.replace(f"Day: [[{DAY}]]\n\n", ""))
+        self.assertNotIn("Day:", path.read_text(encoding="utf-8"))
+        self.assertEqual(list(self.daily.iterdir()), [])
+
+    def test_daily_off_append(self):
+        path = self.write()
+        self.write(body=APPENDED, d=D2, domains=("journal",), description="Wired the Stop hook.")
+        self.assertEqual(path.read_text(encoding="utf-8"),
+                         FROZEN_APPENDED.replace(f"Day: [[{DAY}]], [[{DAY2}]]\n\n", ""))
+        self.assertEqual(list(self.daily.iterdir()), [])
+
+    def test_daily_off_dry_run_reads_no_daily_note(self):
+        done = self.run_cli("write", "--title", TITLE, "--domain", "claude-code",
+                            "--description", "D", "--body-file", str(self.body_file(BODY)),
+                            "--dry-run")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("Day:", done.stdout)
+
+    def test_a_daily_note_value_that_is_not_a_bool_is_refused(self):
+        self.config(journal={"dailyNote": "no"})
+        with self.assertRaisesRegex(ValueError, "`journal.dailyNote`"):
+            self.write()
+        self.assertWroteNothing()
+
+
+class Area(SessionCase):
+    def test_area_default_is_ai(self):
+        self.assertEqual(sn.sessions_dir(), self.vault / "AI" / "sessions")
+
+    def test_area_empty(self):
+        for value in ("", ".", " "):
+            with self.subTest(value=value):
+                self.config(vault={"area": value})
+                path = self.write(session=f"s{len(value)}")
+                self.assertEqual(path, self.vault / "sessions" / "2026-10-17 Memory system.md")
+                self.assertEqual(json.loads(self.map.read_text(encoding="utf-8"))[f"s{len(value)}"],
+                                 "sessions/2026-10-17 Memory system.md")
+
+    def test_area_trailing_slash(self):
+        self.config(vault={"area": "AI/"})
+        self.assertEqual(self.write(), self.vault / REL)
+        self.config(vault={"area": "Work/AI"})
+        self.assertEqual(sn.sessions_dir(), self.vault / "Work" / "AI" / "sessions")
+
+    def test_area_rejected(self):
+        for value in ("/abs", "../x", "a/../../x", "a\\b", 3, ["AI"]):
+            with self.subTest(value=value):
+                self.config(vault={"area": value})
+                with self.assertRaisesRegex(ValueError, "`vault.area`"):
+                    sn.area()
+                with self.assertRaisesRegex(ValueError, "`vault.area`"):
+                    self.write()
+                self.assertWroteNothing()
+                self.assertFalse((self.vault / "sessions").exists())
+
+    def test_a_rejected_area_exits_2_and_names_the_key(self):
+        self.config(vault={"area": "../x"})
+        done = self.cli_write()
+        self.assertEqual(done.returncode, 2)
+        self.assertIn(f"`vault.area` in `{self.config_file}` must not hold ..", done.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

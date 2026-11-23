@@ -362,6 +362,26 @@ class TestConfig(StopCase):
         self.assertEqual(json.loads(done.stdout)["hookSpecificOutput"]["additionalContext"],
                          stop.NUDGE)
 
+    def test_daily_off_needs_no_protected_section(self):
+        values = self.without("journal.protectedSection")
+        values["journal"]["dailyNote"] = False
+        done = self._drive(json.dumps(values))
+        self.assertEqual((done.returncode, done.stderr), (0, ""))
+        self.assertEqual(json.loads(done.stdout)["hookSpecificOutput"]["additionalContext"],
+                         stop.NUDGE)
+        # With the daily note on, the same config still silences it.
+        del values["journal"]["dailyNote"]
+        done = self._drive(json.dumps(values), session="s-on")
+        self.assertEqual(done.stdout, "")
+        self.assertIn("journal.protectedSection", done.stderr)
+
+    def test_a_rejected_area_silences_it_and_says_why(self):
+        values = json.loads(json.dumps(STOP_CONFIG))
+        values["vault"]["area"] = "../x"
+        done = self._drive(json.dumps(values))
+        self.assertEqual(done.stdout, "")
+        self.assertIn("`vault.area`", done.stderr)
+
     def test_off_records_why(self):
         self.config.write_text("{}", encoding="utf-8")
         t = self.transcript(edit_turn(), quiet_turn(), quiet_turn())

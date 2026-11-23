@@ -160,9 +160,11 @@ class Render(FileCase):
     def test_every_text_key_has_a_line(self):
         self.write(json.dumps(FULL))
         out = sv.render()
+        # The daily note on, the default, needs no line.
         for key, _kind in sv.TEXT_KEYS:
-            self.assertIn(f"`{key}`", out)
-        self.assertEqual(sv.OPTIONAL, {"user.name"})
+            if key != "journal.dailyNote":
+                self.assertIn(f"`{key}`", out)
+        self.assertEqual(sv.OPTIONAL - set(sv.SHOWN), {"user.name"})
 
     def test_a_missing_key_prints_the_stop_line_instead(self):
         values = json.loads(json.dumps(FULL))
@@ -251,6 +253,52 @@ class Render(FileCase):
         values["vault"]["root"] = ["/notes/vault"]
         self.write(json.dumps(values))
         self.assertIn(self.stop_line("vault.root"), self.lines())
+
+    def test_render_names_area(self):
+        self.write(json.dumps(FULL))
+        self.assertIn("- `vault.area`: AI", self.lines())
+        for value, shown in (("Work/AI/", "Work/AI"), ("", "."), (".", ".")):
+            with self.subTest(value=value):
+                self.write(json.dumps({**FULL, "vault": {**FULL["vault"], "area": value}}))
+                self.assertIn(f"- `vault.area`: {shown}", self.lines())
+
+    def test_area_rejected(self):
+        for value in ("/abs", "../x", "a\\b", 7):
+            with self.subTest(value=value):
+                values = {**FULL, "vault": {**FULL["vault"], "area": value}}
+                self.write(json.dumps(values))
+                line = next(x for x in self.lines() if x.startswith("- `vault.area`"))
+                self.assertTrue(line.startswith(f"- `vault.area`: invalid: `vault.area` in "
+                                                f"`{self.file}` must "), line)
+                self.assertEqual(sv.needed(values), ["vault.area"])
+
+    def test_daily_on_by_default_prints_no_line(self):
+        self.write(json.dumps(FULL))
+        self.assertNotIn("dailyNote", sv.render())
+        self.assertEqual(sv.needed(FULL), [])
+        values = {**FULL, "journal": {"languageRule": "x"}}
+        self.assertIn(self.stop_line("journal.protectedSection"), sv.render(values).splitlines())
+        self.assertEqual(sv.needed(values), ["journal.protectedSection"])
+
+    def test_daily_off_needs_no_protected_section(self):
+        values = json.loads(json.dumps(FULL))
+        values["journal"]["dailyNote"] = False
+        del values["journal"]["protectedSection"]
+        self.write(json.dumps(values))
+        self.assertEqual(sv.needed(values), [])
+        out = sv.render()
+        self.assertIn("- `journal.dailyNote`: off. Skip every step about the daily note\n", out)
+        self.assertIn("- `journal.protectedSection`: not needed, the daily note is off\n", out)
+        self.assertNotIn("Stop.", out)
+        # A protected section that is set still shows.
+        values["journal"]["protectedSection"] = "## Logbook"
+        self.assertIn("- `journal.protectedSection`: ## Logbook", sv.render(values).splitlines())
+
+    def test_a_daily_note_that_is_not_a_bool_is_refused(self):
+        values = {**FULL, "journal": {**FULL["journal"], "dailyNote": "no"}}
+        self.assertEqual(sv.needed(values), ["journal.dailyNote"])
+        self.assertIn(f"- `journal.dailyNote`: invalid: `journal.dailyNote` in `{self.file}` "
+                      "must be true or false: 'no'", sv.render(values).splitlines())
 
     def test_a_list_or_object_prints_as_compact_json(self):
         self.assertEqual(sv.show({"a": ["b", "ü"]}), '{"a":["b","ü"]}')
