@@ -33,8 +33,10 @@ VAULT_MDLINT_CONFIG = '{"config": {"MD013": false}}\n'
 TODAY = {"vault": {"root": "", "commit": "vault-commit"},
          "journal": {"protectedSection": "## Logbook", "languageRule": "English.",
                      "check": "notes-check"}}
-# What main wrote at 0b00fcd with TODAY's keys: the note BODY created on D,
-# then APPENDED to it by the same session on D2, and the map.
+# What main wrote at 0b00fcd with TODAY's keys (block lists; the flow style
+# of older notes is in test_old_flow_style_note_gets_project_in_order): the
+# note BODY created on D, then APPENDED to it by the same session on D2, and
+# the map.
 FROZEN_CREATED = (
     '---\ntype: session\ndomain:\n  - claude-code\nupdated: 2026-10-17\n'
     'description: "Wrote the session note writer."\n'
@@ -285,6 +287,34 @@ class ProjectAndStyle(SessionCase):
         self.assertIn("domain:\n  - claude-code\n  - vault\nupdated", text)
         self.assertIn('project:\n  - "[[mimir]]"\ndomain:', text)
         self.assertNotIn("[claude-code", text)
+
+    def test_old_flow_style_note_gets_project_in_order(self):
+        path = self.write()
+        old = ('---\ntype: session\nstatus: done\ndomain: [claude-code]\n'
+               'project: ["[[galdr]]"]\nupdated: 2026-10-17\ncreated: 2026-10-17\n'
+               'description: "Old."\ntags: [x]\n---\n\n# Memory system\n\n'
+               'Day: [[Saturday, 17. Oct 2026 (W42)]]\n\n## Done\n\nOld.\n')
+        path.write_text(old, encoding="utf-8")
+        sn.write(SESSION, TITLE, ["vault"], "E.", "## Next\n\nMore.\n", D2, ["mimir"])
+        head = path.read_text(encoding="utf-8").split("\n---\n")[0]
+        self.assertIn('domain:\n  - claude-code\n  - vault\n'
+                      'project:\n  - "[[galdr]]"\n  - "[[mimir]]"\nupdated: 2026-10-18\n', head)
+        keys = [l.split(":")[0] for l in head.splitlines() if re.match(r"[a-z]", l)]
+        self.assertEqual(keys, ["type", "status", "domain", "project", "updated",
+                                "created", "description", "tags"])
+
+    def test_missing_domain_and_project_go_where_the_vault_puts_them(self):
+        path = self.write()
+        path.write_text('---\ntype: session\nstatus: done\nprogress: 1\n'
+                        'updated: 2026-10-17\ncreated: 2026-10-17\n'
+                        'description: "Old."\ntags: [x]\n---\n\n# Memory system\n\n'
+                        'Day: [[Saturday, 17. Oct 2026 (W42)]]\n\n## Done\n\nOld.\n',
+                        encoding="utf-8")
+        sn.write(SESSION, TITLE, ["vault"], "E.", "## Next\n\nMore.\n", D2, ["mimir"])
+        head = path.read_text(encoding="utf-8").split("\n---\n")[0]
+        keys = [l.split(":")[0] for l in head.splitlines() if re.match(r"[a-z]", l)]
+        self.assertEqual(keys, ["type", "status", "project", "domain", "progress",
+                                "updated", "created", "description", "tags"])
 
     def test_a_bad_project_name_is_refused(self):
         with self.assertRaises(ValueError):

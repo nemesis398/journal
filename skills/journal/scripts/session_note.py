@@ -215,14 +215,19 @@ def _new_note(session: str, title: str, domains: list[str], description: str,
     return "\n".join(lines) + "\n"
 
 
+# The vault's frontmatter key order, for a key a note lacks.
+KEY_ORDER = ("type", "status", "project", "domain", "progress", "updated",
+             "created", "description", "tags", "aliases")
+
+
 def _set_key(rows: list[str], key: str, value: str | list[str], nl: str,
-             before: str | None = None, quote: bool = False) -> list[str]:
+             quote: bool = False) -> list[str]:
     """Frontmatter `rows` with the top-level `key` set to `value`.
 
     The old value can run over several lines, as `domain` does once Obsidian
     has rewritten the list in block form, and all of them go. Every other row
-    stays as it was. A missing key is added at the end, or ahead of the key
-    `before` when that is present. A list `value` is written as a block list.
+    stays as it was. A missing key is added ahead of the first present key
+    that KEY_ORDER puts after it, else at the end. A list `value` is written as a block list.
     """
     new = ([f"{key}: {value}{nl}"] if isinstance(value, str)
            else _block(key, value, nl, quote))
@@ -233,8 +238,9 @@ def _set_key(rows: list[str], key: str, value: str | list[str], nl: str,
                                        or rows[end].strip() == "-"):
                 end += 1
             return [*rows[:i], *new, *rows[end:]]
+    later = KEY_ORDER[KEY_ORDER.index(key) + 1:] if key in KEY_ORDER else ()
     at = next((i for i, row in enumerate(rows)
-               if before and re.match(rf"{re.escape(before)}[ \t]*:(?=\s|$)", row)), len(rows))
+               if any(re.match(rf"{k}[ \t]*:(?=\s|$)", row) for k in later)), len(rows))
     return [*rows[:at], *new, *rows[at:]]
 
 
@@ -262,8 +268,7 @@ def _append(text: str, domains: list[str], description: str,
     if links:
         old = meta.get("project")
         old = old if isinstance(old, list) else [old] if isinstance(old, str) and old else []
-        rows = _set_key(rows, "project", list(dict.fromkeys([*old, *links])), nl,
-                        before="domain", quote=True)
+        rows = _set_key(rows, "project", list(dict.fromkeys([*old, *links])), nl, quote=True)
     rows = _set_key(rows, "description", _quoted(description), nl)
     lines = [lines[0], *rows, *lines[close:]]
     close = len(rows) + 1

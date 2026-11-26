@@ -91,9 +91,9 @@ is a key of `memory.domains` in the ai-memory skill's config, such as
 **The project is a hub that exists.** When the work belongs to a project, pass
 `--project NAME` once per hub, with the hub's note name, and the note links it
 as `[[NAME]]`. Pick the name from the hubs the vault has: the notes with
-`type: project`, found with `rg -l '^type: project' VAULT` under the vault
-root. Never invent a hub. When no hub fits, pass no `--project` and the note
-has no `project` key.
+`type: project`, found with `rg -l '^type: project\s*$' VAULT` (needs
+ripgrep), where `VAULT` stands for `vault.root` in Values. Never invent a hub.
+When no hub fits, pass no `--project` and the note has no `project` key.
 
 **Language follows subject, not folder.** Which subject takes which language
 is `journal.languageRule` in Values.

@@ -9,7 +9,8 @@
   one.
 - The frontmatter follows the vault's style: lists one item per line (`domain`
   was `[a, b]`, also when a later call adds a domain), keys in the order
-  `type`, `project`, `domain`, `updated`, `description`, `generated`.
+  `type`, `project`, `domain`, `updated`, `description`, `generated`. A key an older note lacks is added where the vault's key order
+  puts it, not after `description`.
 
 ## 0.2.0
 
