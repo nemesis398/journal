@@ -88,6 +88,13 @@ The headings stay English whatever the language of the text under them.
 is a key of `memory.domains` in the ai-memory skill's config, such as
 `claude-code`, and its lint warns on any other.
 
+**The project is a hub that exists.** When the work belongs to a project, pass
+`--project NAME` once per hub, with the hub's note name, and the note links it
+as `[[NAME]]`. Pick the name from the hubs the vault has: the notes with
+`type: project`, found with `rg -l '^type: project' VAULT` under the vault
+root. Never invent a hub. When no hub fits, pass no `--project` and the note
+has no `project` key.
+
 **Language follows subject, not folder.** Which subject takes which language
 is `journal.languageRule` in Values.
 
@@ -135,6 +142,7 @@ the final run said.
 python3 -B "${CLAUDE_SKILL_DIR}/scripts/session_note.py" write \
   --title "Questions go in the interactive UI" \
   --domain claude-code \
+  [--project NAME] \
   --description "Why decisions are asked in the question dialog" \
   --body-file "$SCRATCH/session.md" \
   [--dry-run]

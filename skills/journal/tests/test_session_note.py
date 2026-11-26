@@ -36,14 +36,14 @@ TODAY = {"vault": {"root": "", "commit": "vault-commit"},
 # What main wrote at 0b00fcd with TODAY's keys: the note BODY created on D,
 # then APPENDED to it by the same session on D2, and the map.
 FROZEN_CREATED = (
-    '---\ntype: session\ndomain: [claude-code]\nupdated: 2026-10-17\n'
+    '---\ntype: session\ndomain:\n  - claude-code\nupdated: 2026-10-17\n'
     'description: "Wrote the session note writer."\n'
     'generated: claude/0b7c9a52-3f1e-4d2a-9c8b-5e6f7a8b9c0d\n---\n\n# Memory system\n\n'
     'Day: [[Saturday, 17. Oct 2026 (W42)]]\n\n## Done\n\nWrote the writer.\n\n'
     '## Next\n\nWire the Stop hook.\n')
 APPENDED = "## Done\n\nWired the hook.\n\n## Decisions\n\nOnce per session.\n"
 FROZEN_APPENDED = (
-    '---\ntype: session\ndomain: [claude-code, journal]\nupdated: 2026-10-18\n'
+    '---\ntype: session\ndomain:\n  - claude-code\n  - journal\nupdated: 2026-10-18\n'
     'description: "Wired the Stop hook."\n'
     'generated: claude/0b7c9a52-3f1e-4d2a-9c8b-5e6f7a8b9c0d\n---\n\n# Memory system\n\n'
     'Day: [[Saturday, 17. Oct 2026 (W42)]], [[Sunday, 18. Oct 2026 (W42)]]\n\n'
@@ -147,7 +147,8 @@ class Create(SessionCase):
         self.assertEqual(self.text(), (
             "---\n"
             "type: session\n"
-            "domain: [claude-code]\n"
+            "domain:\n"
+            "  - claude-code\n"
             "updated: 2026-10-17\n"
             'description: "Wrote the session note writer."\n'
             f"generated: claude/{SESSION}\n"
@@ -244,7 +245,7 @@ class Frontmatter(SessionCase):
         # frontmatter, so the append has to read and replace both forms.
         path = self.write(description="Old.")
         path.write_text(self.text().replace(
-            "domain: [claude-code]\n", "domain:\n  - claude-code\naliases:\n  - MS\n"), encoding="utf-8")
+            "domain:\n  - claude-code\n", "domain:\n  - claude-code\naliases:\n  - MS\n"), encoding="utf-8")
         self.write("## Next\n\nMore.\n", d=D2, domains=("vault", "claude-code"),
                    description='New: "quoted".')
         meta, _ = parse_frontmatter(self.text())
@@ -256,6 +257,43 @@ class Frontmatter(SessionCase):
             "description": 'New: "quoted".',
             "generated": f"claude/{SESSION}",
         })
+
+
+class ProjectAndStyle(SessionCase):
+    def test_project_written_as_links(self):
+        path = sn.write(SESSION, TITLE, ["claude-code"], "D.", BODY, D, ["galdr", "mimir"])
+        text = path.read_text(encoding="utf-8")
+        self.assertIn('project:\n  - "[[galdr]]"\n  - "[[mimir]]"\n', text)
+        meta, _ = parse_frontmatter(text)
+        self.assertEqual(meta["project"], ["[[galdr]]", "[[mimir]]"])
+
+    def test_no_project_no_key(self):
+        meta, _ = parse_frontmatter(self.write().read_text(encoding="utf-8"))
+        self.assertNotIn("project", meta)
+
+    def test_new_note_key_order_and_block_domain(self):
+        path = sn.write(SESSION, TITLE, ["claude-code", "odd, domain"], "D.", BODY, D, ["galdr"])
+        head = path.read_text(encoding="utf-8").split("\n---\n")[0]
+        keys = [l.split(":")[0] for l in head.splitlines() if re.match(r"[a-z]", l)]
+        self.assertEqual(keys, ["type", "project", "domain", "updated", "description", "generated"])
+        self.assertIn('domain:\n  - claude-code\n  - "odd, domain"\n', head)
+
+    def test_a_later_domain_keeps_the_block_form(self):
+        path = self.write()
+        sn.write(SESSION, TITLE, ["vault"], "E.", "## Next\n\nMore.\n", D2, ["mimir"])
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("domain:\n  - claude-code\n  - vault\nupdated", text)
+        self.assertIn('project:\n  - "[[mimir]]"\ndomain:', text)
+        self.assertNotIn("[claude-code", text)
+
+    def test_a_bad_project_name_is_refused(self):
+        with self.assertRaises(ValueError):
+            sn.write(SESSION, TITLE, ["claude-code"], "D.", BODY, D, ["a]]b"])
+
+    def test_cli_project_is_repeatable(self):
+        done = self.cli_write(BODY, "--project", "galdr", "--project", "mimir")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('  - "[[galdr]]"\n  - "[[mimir]]"\n', self.text())
 
 
 # Frontmatter shapes both readers must agree on, the ones that fail included.

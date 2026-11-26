@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+- `session_note.py write` takes an optional, repeatable `--project NAME`: a
+  new note gets `project:` with one `"[[NAME]]"` line per hub, and a later
+  call adds hubs to it. With none, there is no `project` key. The skill says
+  to pick the name from the vault's `type: project` notes and never to invent
+  one.
+- The frontmatter follows the vault's style: lists one item per line (`domain`
+  was `[a, b]`, also when a later call adds a domain), keys in the order
+  `type`, `project`, `domain`, `updated`, `description`, `generated`.
+
 ## 0.2.0
 
 - `vault.area` places the session notes: they go to `sessions/` under it,

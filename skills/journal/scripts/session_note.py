@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write a session note into `<vault.area>/sessions/` of the vault. Composes nothing.
 
-    session_note.py write --title T --domain D [--domain D2] --description S
+    session_note.py write --title T --domain D [--domain D2] [--project HUB ...] --description S
         --body-file F [--session ID] [--date YYYY-MM-DD] [--dry-run]
 
 The body is the model's own prose, already prose-checked, under `## `
@@ -174,15 +174,37 @@ def _quoted(text: str) -> str:
     return json.dumps(" ".join(text.split()), ensure_ascii=False)
 
 
-def _flow(items: list[str]) -> str:
-    return "[" + ", ".join(i if _BARE.fullmatch(i) else json.dumps(i, ensure_ascii=False)
-                           for i in items) + "]"
+def _item(item: str) -> str:
+    return item if _BARE.fullmatch(item) else json.dumps(item, ensure_ascii=False)
+
+
+def _links(projects: list[str] | None) -> list[str]:
+    """Hub names as wikilink items, deduplicated. Raises ValueError on a name
+    a link cannot hold."""
+    names = []
+    for name in dict.fromkeys(" ".join(p.split()) for p in projects or []):
+        if not name or _UNSAFE.search(name):
+            raise ValueError(f"{name!r} is not a project hub name: it is empty or holds a "
+                             "character a note name or a wikilink cannot hold")
+        names.append(f"[[{name}]]")
+    return names
+
+
+def _block(key: str, items: list[str], nl: str, quote: bool = False) -> list[str]:
+    """`key:` and one `  - item` row per item, Obsidian's own list form."""
+    return [f"{key}:{nl}", *(f"  - {json.dumps(i, ensure_ascii=False) if quote else _item(i)}{nl}"
+                             for i in items)]
 
 
 def _new_note(session: str, title: str, domains: list[str], description: str,
-              sections: dict[str, list[str]], d: date, day: str | None) -> str:
-    """A new note. `day` names the daily note to link, None for no Day line."""
-    lines = ["---", "type: session", f"domain: {_flow(domains)}",
+              sections: dict[str, list[str]], d: date, day: str | None,
+              projects: list[str] | None = None) -> str:
+    """A new note. `day` names the daily note to link, None for no Day line.
+    Keys in the vault's order: type, project, domain, updated, description."""
+    links = _links(projects)
+    head = ["type: session\n", *(_block("project", links, "\n", True) if links else []),
+            *_block("domain", domains, "\n")]
+    lines = ["---", *"".join(head).splitlines(),
              f"updated: {d.isoformat()}", f"description: {_quoted(description)}",
              f"generated: claude/{session}", "---", "",
              f"# {' '.join(title.split())}"]
@@ -193,26 +215,32 @@ def _new_note(session: str, title: str, domains: list[str], description: str,
     return "\n".join(lines) + "\n"
 
 
-def _set_key(rows: list[str], key: str, value: str, nl: str) -> list[str]:
+def _set_key(rows: list[str], key: str, value: str | list[str], nl: str,
+             before: str | None = None, quote: bool = False) -> list[str]:
     """Frontmatter `rows` with the top-level `key` set to `value`.
 
     The old value can run over several lines, as `domain` does once Obsidian
     has rewritten the list in block form, and all of them go. Every other row
-    stays as it was. A missing key is added at the end.
+    stays as it was. A missing key is added at the end, or ahead of the key
+    `before` when that is present. A list `value` is written as a block list.
     """
-    new = f"{key}: {value}{nl}"
+    new = ([f"{key}: {value}{nl}"] if isinstance(value, str)
+           else _block(key, value, nl, quote))
     for i, row in enumerate(rows):
         if re.match(rf"{re.escape(key)}[ \t]*:(?=\s|$)", row):
             end = i + 1
             while end < len(rows) and (rows[end].startswith((" ", "\t", "- "))
                                        or rows[end].strip() == "-"):
                 end += 1
-            return [*rows[:i], new, *rows[end:]]
-    return [*rows, new]
+            return [*rows[:i], *new, *rows[end:]]
+    at = next((i for i, row in enumerate(rows)
+               if before and re.match(rf"{re.escape(before)}[ \t]*:(?=\s|$)", row)), len(rows))
+    return [*rows[:at], *new, *rows[at:]]
 
 
 def _append(text: str, domains: list[str], description: str,
-            sections: dict[str, list[str]], d: date, day: str | None) -> str:
+            sections: dict[str, list[str]], d: date, day: str | None,
+            projects: list[str] | None = None) -> str:
     """`text` with `updated`, `domain` and `description` set, the day linked
     unless `day` is None, and each section's lines at the end of its own
     section.
@@ -229,7 +257,13 @@ def _append(text: str, domains: list[str], description: str,
     have = have if isinstance(have, list) else [have] if isinstance(have, str) and have else []
     rows = lines[1:close]
     rows = _set_key(rows, "updated", d.isoformat(), nl)
-    rows = _set_key(rows, "domain", _flow(list(dict.fromkeys([*have, *domains]))), nl)
+    rows = _set_key(rows, "domain", list(dict.fromkeys([*have, *domains])), nl)
+    links = _links(projects)
+    if links:
+        old = meta.get("project")
+        old = old if isinstance(old, list) else [old] if isinstance(old, str) and old else []
+        rows = _set_key(rows, "project", list(dict.fromkeys([*old, *links])), nl,
+                        before="domain", quote=True)
     rows = _set_key(rows, "description", _quoted(description), nl)
     lines = [lines[0], *rows, *lines[close:]]
     close = len(rows) + 1
@@ -301,17 +335,18 @@ def _target(sessions: dict, session: str, d: date, title: str) -> Path:
 
 def _compose(sessions: dict, session: str, title: str, domains: list[str],
              description: str, sections: dict[str, list[str]], d: date,
-             day: str | None) -> tuple[Path, str, str]:
+             day: str | None, projects: list[str] | None = None) -> tuple[Path, str, str]:
     """The target, "created" or "appended", and the note's new text."""
     target = _target(sessions, session, d, title)
     if target.exists():
         old = target.read_text(encoding="utf-8", newline="")
-        return target, "appended", _append(old, domains, description, sections, d, day)
-    return target, "created", _new_note(session, title, domains, description, sections, d, day)
+        return target, "appended", _append(old, domains, description, sections, d, day, projects)
+    return target, "created", _new_note(session, title, domains, description, sections, d, day, projects)
 
 
 def _write(session: str, title: str, domains: list[str], description: str,
-           body: str, d: date, dry_run: bool = False) -> tuple[Path, str, str]:
+           body: str, d: date, dry_run: bool = False,
+           projects: list[str] | None = None) -> tuple[Path, str, str]:
     if not session:
         raise ValueError("no session id: pass --session, or run where CLAUDE_CODE_SESSION_ID is set")
     if not _SESSION.fullmatch(session):
@@ -322,6 +357,7 @@ def _write(session: str, title: str, domains: list[str], description: str,
         raise ValueError("the description is empty")
     sections = parse_body(body)
     domains = list(dict.fromkeys(domains))
+    _links(projects)
     # Both raise on a bad value before anything is written.
     area()
     linked = daily_note()
@@ -329,7 +365,7 @@ def _write(session: str, title: str, domains: list[str], description: str,
         # resolve_note names the daily note that ensure_note would create,
         # and creates nothing.
         return _compose(_read_map(), session, title, domains, description,
-                        sections, d, dn.resolve_note(d).stem if linked else None)
+                        sections, d, dn.resolve_note(d).stem if linked else None, projects)
     with dn.lock_path().open("w") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         try:
@@ -337,7 +373,7 @@ def _write(session: str, title: str, domains: list[str], description: str,
             # Without the daily note, nothing here reads or creates one.
             day = dn.ensure_note(d)[0].stem if linked else None
             target, what, text = _compose(sessions, session, title, domains,
-                                          description, sections, d, day)
+                                          description, sections, d, day, projects)
             target.parent.mkdir(parents=True, exist_ok=True)
             dn.atomic_write(target, text)
             sessions[session] = target.relative_to(dn.vault_root()).as_posix()
@@ -349,7 +385,7 @@ def _write(session: str, title: str, domains: list[str], description: str,
 
 
 def write(session: str, title: str, domains: list[str], description: str,
-          body: str, d: date) -> Path:
+          body: str, d: date, projects: list[str] | None = None) -> Path:
     """Create the session's note, or append to it, and return its path.
 
     Holds the journal's lock, the one write_entry holds, across both
@@ -360,7 +396,7 @@ def write(session: str, title: str, domains: list[str], description: str,
     With `journal.dailyNote` false there is no Day link and no daily note.
     Raises ValueError on input it will not write.
     """
-    return _write(session, title, domains, description, body, d)[0]
+    return _write(session, title, domains, description, body, d, projects=projects)[0]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -373,6 +409,8 @@ def main(argv: list[str] | None = None) -> int:
     cmd.add_argument("--title", required=True)
     cmd.add_argument("--domain", action="append", required=True, help="once per domain")
     cmd.add_argument("--description", required=True, help="one line on what the session did")
+    cmd.add_argument("--project", action="append", default=[],
+                     help="name of an existing project hub, once per hub; written as a [[link]]")
     cmd.add_argument("--body-file", required=True,
                      help=f"the text under ## headings, each one of: {', '.join(SECTIONS)}")
     cmd.add_argument("--session", default=os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
@@ -391,7 +429,7 @@ def main(argv: list[str] | None = None) -> int:
         when = date.fromisoformat(args.date) if args.date else date.today()
         body = Path(args.body_file).read_text(encoding="utf-8")
         target, what, text = _write(args.session, args.title, args.domain,
-                                    args.description, body, when, args.dry_run)
+                                    args.description, body, when, args.dry_run, args.project)
     except (OSError, ValueError, LookupError) as exc:
         print(f"session_note: {exc}", file=sys.stderr)
         return 2
